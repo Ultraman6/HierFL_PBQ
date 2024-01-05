@@ -489,11 +489,6 @@ def get_mnist(dataset_root, args):
     else:
         test_loaders = split_data(test, args, kwargs, is_shuffle=False)
 
-    # 根据 args.share_niid 的值创建共享数据加载器
-    if args.niid_share == 1:
-        share_loaders = create_shared_data_loaders(train, args)
-    else:
-        share_loaders = [None] * args.num_edges
 
     test_set_size = len(test)
     subset_size = int(test_set_size * args.test_ratio)  # 例如，保留20%的数据
@@ -505,7 +500,7 @@ def get_mnist(dataset_root, args):
     # 使用子集创建 DataLoader
     v_test_loader = DataLoader(subset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
-    return train_loaders, test_loaders, share_loaders, v_test_loader
+    return train_loaders, test_loaders, v_test_loader
 
 
 def get_cifar10(dataset_root, args):  # cifa10数据集下只能使用cnn_complex和resnet18模型
@@ -540,12 +535,6 @@ def get_cifar10(dataset_root, args):  # cifa10数据集下只能使用cnn_comple
     test = datasets.CIFAR10(os.path.join(dataset_root, 'cifar10'), train=False,
                             download=True, transform=transform_test)
 
-    # 根据 args.share_niid 的值创建共享数据加载器
-    if args.niid_share == 1:
-        share_loaders = create_shared_data_loaders(train, args)
-    else:
-        share_loaders = [None] * args.num_edges
-
     test_set_size = len(test)
     subset_size = int(test_set_size * args.test_ratio)  # 例如，保留20%的数据
     # 生成随机索引来创建子集
@@ -569,7 +558,7 @@ def get_cifar10(dataset_root, args):  # cifa10数据集下只能使用cnn_comple
     else:
         test_loaders = split_data(test, args, kwargs)
 
-    return train_loaders, test_loaders, share_loaders, v_test_loader
+    return train_loaders, test_loaders, v_test_loader
 
 
 def get_femnist(dataset_root, args):
@@ -612,8 +601,6 @@ def get_femnist(dataset_root, args):
     test_ds = data.TensorDataset(torch.tensor(test_x), torch.tensor(test_y, dtype=torch.long))
     test_ds.targets = test_y  # 添加targets属性
 
-    v_train_loader = DataLoader(train_ds, batch_size=args.batch_size * args.num_clients,
-                                shuffle=True, **kwargs)
     v_test_loader = DataLoader(test_ds, batch_size=args.batch_size * args.num_clients,
                                shuffle=False, **kwargs)
 
@@ -623,7 +610,7 @@ def get_femnist(dataset_root, args):
     train_h5.close()
     test_h5.close()
 
-    return train_loaders, test_loaders, v_train_loader, v_test_loader
+    return train_loaders, test_loaders, v_test_loader
 
 
 def show_distribution(dataloader, args):

@@ -80,14 +80,6 @@ def get_dataloader(X, y, args):
         global_train_data.extend(zip(X_train, y_train))
         global_test_data.extend(zip(X_test, y_test))
 
-    # Create shared data loaders
-    if args.niid_share == 1:
-        share_ds = TensorDataset(torch.tensor([x for x, _ in global_train_data]),
-                                 torch.tensor([y for _, y in global_train_data], dtype=torch.int64))
-        share_loaders = [DataLoader(dataset=share_ds, batch_size=args.share_batch_size, shuffle=True)] * args.num_edges
-    else:
-        share_loaders = [None] * args.num_edges
-
     # Create global validation DataLoader
     test_set_size = len(global_test_data)
     subset_size = int(test_set_size * args.test_ratio)  # Example: retain 20% of the data for validation
@@ -97,9 +89,9 @@ def get_dataloader(X, y, args):
     v_test_subset = Subset(v_test_ds, subset_indices)
     v_test_loader = DataLoader(v_test_subset, batch_size=args.test_batch_size, shuffle=False)
 
-    return train_loaders, test_loaders, share_loaders, v_test_loader
+    return train_loaders, test_loaders, v_test_loader
 
 def get_synthetic(args):
     X, y = generate_synthetic(args.alpha, args.beta, args.iid, args.dimension, args.num_class, args.num_clients)
     train_loaders, test_loaders, share_loaders, v_test_loader = get_dataloader(X, y, args)
-    return train_loaders, test_loaders, share_loaders, v_test_loader
+    return train_loaders, test_loaders, v_test_loader

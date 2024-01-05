@@ -15,7 +15,7 @@ from datasets.cifar_mnist import create_shared_data_loaders, split_data
 
 url = "https://datashare.ed.ac.uk/bitstream/handle/10283/3192/CINIC-10.tar.gz"
 
-def download_dataset(url, dataset_dir):
+def download_cinic10(url, dataset_dir):
     if not os.path.exists(dataset_dir):
         os.makedirs(dataset_dir)
 
@@ -127,17 +127,12 @@ def get_cinic10(dataset_dir, args):
     dataset_root = os.path.join(dataset_dir, 'cinic10')
     if not (os.path.exists(dataset_root)):
         print("CINIC-10数据集不存在，正在下载...")
-        download_dataset(url, dataset_root) # 调用下载函数
+        download_cinic10(url, dataset_root) # 调用下载函数
 
     # 加载CINIC-10数据集
     train = datasets.ImageFolder(os.path.join(dataset_root, 'CINIC-10/train'), transform=transform_train)
     test = datasets.ImageFolder(os.path.join(dataset_root, 'CINIC-10/test'), transform=transform_test)
 
-    # 根据 args.share_niid 的值创建共享数据加载器
-    if args.niid_share == 1:
-        share_loaders = create_shared_data_loaders(train, args)
-    else:
-        share_loaders = [None] * args.num_edges
 
     test_set_size = len(test)
     subset_size = int(test_set_size * args.test_ratio)  # 例如，保留20%的数据
@@ -162,4 +157,4 @@ def get_cinic10(dataset_dir, args):
     else:
         test_loaders = split_data(test, args, kwargs)
 
-    return train_loaders, test_loaders, share_loaders, v_test_loader
+    return train_loaders, test_loaders, v_test_loader

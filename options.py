@@ -11,14 +11,16 @@ def args_parser():
         '--dataset',
         type = str,
         default = 'cinic10',
-        help = 'name of the dataset: mnist, cifar10, femnist, synthetic, cinic10'
+        help = 'name of the dataset: mnist, cifar10, femnist, synthetic, cinic10, shakespare, CelebA'
     )
     parser.add_argument(
         '--model',
         type = str,
         default = 'resnet18_YWX',
         help='name of model. mnist: logistic, lenet, cnn; '
-             'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; femnist: logistic, lenet, cnn; synthetic:lr'
+             'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; '
+             'femnist: logistic, lenet, cnn; synthetic: lr; '
+             'shakespare: RNN; CelebA: GAN'
     )
     parser.add_argument(
         '--input_channels',
@@ -270,12 +272,6 @@ def args_parser():
         default = 1,
         help = 'means the variance  of distributions among clients'
     )
-    # parser.add_argument(
-    #     '--syn_iid',
-    #     type = int,
-    #     default = -1,
-    #     help = '1 means mapping is active, 0 means mapping is inactive'
-    # )
     parser.add_argument(
         '--dimension',
         type = int,
