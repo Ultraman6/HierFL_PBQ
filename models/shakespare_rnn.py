@@ -1,10 +1,10 @@
 from torch import nn
 
 
-class RNN(nn.Module):
+class RNNModel(nn.Module):
 
     def __init__(self, embedding_dim=8, vocab_size=90, hidden_size=256):
-        super(RNN, self).__init__()
+        super(RNNModel, self).__init__()
         self.embeddings = nn.Embedding(
             num_embeddings=vocab_size, embedding_dim=embedding_dim, padding_idx=0
         )

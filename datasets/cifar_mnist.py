@@ -614,33 +614,43 @@ def get_femnist(dataset_root, args):
 
 
 def show_distribution(dataloader, args):
-    """
-    Show the distribution of the data on a certain client with dataloader.
-    Return:
-        Percentage of each class of the label.
-    """
-    # Retrieve labels
-    if args.dataset in ['femnist', 'cifar10', 'mnist', 'synthetic', 'cinic10']:
-        labels = [label for _, label in dataloader.dataset]
-    elif args.dataset == 'fsdd':
-        labels = dataloader.dataset.labels
+
+    if args.dataset == 'celeba':
+        return show_celeba_distribution(dataloader)
     else:
-        raise ValueError("`{}` dataset not included".format(args.dataset))
+        if args.dataset in ['femnist', 'cifar10', 'mnist', 'synthetic', 'cinic10']:
+            labels = [label for _, label in dataloader.dataset]
+        elif args.dataset == 'fsdd':
+            labels = dataloader.dataset.labels
+        else:
+            raise ValueError("`{}` dataset not included".format(args.dataset))
+        # Ensure labels are numpy array and integer type
+        labels = np.array(labels).astype(int)
+        num_samples = len(labels)
+        max_label = labels.max()
+        # Initialize distribution array
+        distribution = np.zeros(max_label + 1)
+        # Calculate distribution
+        for label in labels:
+            distribution[label] += 1
+        # Normalize to get percentages
+        distribution = distribution / num_samples
+        return distribution
 
-    # Ensure labels are numpy array and integer type
-    labels = np.array(labels).astype(int)
+
+def show_celeba_distribution(dataloader):
+    # CelebA 的每个样本都有一组属性标签
+    labels = np.array([label for _, label in dataloader.dataset])
     num_samples = len(labels)
-    max_label = labels.max()
+    num_attributes = labels.shape[1]  # 假设labels的形状为 [num_samples, num_attributes]
 
-    # Initialize distribution array
-    distribution = np.zeros(max_label + 1)
+    # 初始化每个属性的分布数组
+    distribution = np.zeros(num_attributes)
 
-    # Calculate distribution
-    for label in labels:
-        distribution[label] += 1
+    # 计算每个属性的分布
+    for i in range(num_attributes):
+        distribution[i] = labels[:, i].mean()  # 计算每个属性存在的平均频率
 
-    # Normalize to get percentages
-    distribution = distribution / num_samples
     return distribution
 
 

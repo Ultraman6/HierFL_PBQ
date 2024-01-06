@@ -14,7 +14,7 @@ class Cloud():
         self.shared_state_dict = {}
         self.id_registration = []
         self.sample_registration = {}
-        # self.shared_state_dict = shared_layers.state_dict()
+        self.shared_state_dict = shared_layers.state_dict()
         self.clock = []
 
     def refresh_cloudserver(self):
@@ -25,7 +25,7 @@ class Cloud():
 
     def edge_register(self, edge):
         self.id_registration.append(edge.id)
-        self.sample_registration[edge.id] = edge.all_trainsample_num
+        self.sample_registration[edge.id] = sum(edge.sample_registration.values())
         return None
 
     def receive_from_edge(self, edge_id, eshared_state_dict):

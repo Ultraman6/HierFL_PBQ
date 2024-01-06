@@ -10,17 +10,18 @@ def args_parser():
     parser.add_argument(
         '--dataset',
         type = str,
-        default = 'cinic10',
-        help = 'name of the dataset: mnist, cifar10, femnist, synthetic, cinic10, shakespare, CelebA'
+        default = 'celeba',
+        help = 'name of the dataset: mnist, cifar10, femnist, '
+               'synthetic, cinic10, shakespare, celeba'
     )
     parser.add_argument(
         '--model',
         type = str,
-        default = 'resnet18_YWX',
+        default = 'gan',
         help='name of model. mnist: logistic, lenet, cnn; '
              'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; '
              'femnist: logistic, lenet, cnn; synthetic: lr; '
-             'shakespare: RNN; CelebA: GAN'
+             'shakespare: rnn、lstm; celeba: gan'
     )
     parser.add_argument(
         '--input_channels',
@@ -38,13 +39,13 @@ def args_parser():
     parser.add_argument(
         '--train_batch_size',
         type = int,
-        default = 8,
+        default = 10,
         help = 'batch size when trained on client'
     )
     parser.add_argument(
         '--test_batch_size',
         type = int,
-        default = 16,
+        default = 10,
         help = 'batch size when tested on client'
     )
     parser.add_argument(
@@ -56,7 +57,7 @@ def args_parser():
     parser.add_argument(
         '--test_ratio',
         type = int,
-        default = 0.1,
+        default = 1,
         help = 'ratio of test dataset'
     )
     # -------------云聚合轮次、边缘聚合轮次、本地更新轮次
@@ -81,13 +82,13 @@ def args_parser():
     parser.add_argument(
         '--lr',
         type = float,
-        default = 0.01,
+        default = 0.0001,
         help = 'learning rate of the SGD when trained on client'
     )
     parser.add_argument(
         '--lr_decay',
         type = float,
-        default= '0',
+        default= '1',
         help = 'lr decay rate'
     )
     parser.add_argument(
@@ -99,13 +100,13 @@ def args_parser():
     parser.add_argument(
         '--momentum',
         type = float,
-        default = 0.9,
+        default = 0,
         help = 'SGD momentum'
     )
     parser.add_argument(
         '--weight_decay',
         type = float,
-        default = 5e-3,
+        default = 0,
         help= 'The weight decay rate'
     )
     parser.add_argument(
@@ -118,15 +119,8 @@ def args_parser():
     parser.add_argument(
         '--iid',
         type = int,
-        default = -3,
+        default = 1,
         help = 'distribution of the data, 1,0,-1,-2 分别表示iid同大小、niid同大小、iid不同大小、niid同大小且仅一类(one-class)'
-    )
-    # 缓解niid策略——每个edge共享数据给足下客户
-    parser.add_argument(
-        '--niid_share',
-        type = int,
-        default = 0,
-        help = '1 表示开启共享niid缓解， 0表示关闭. 该参数将直接影响初始数据划分和训练前给客户并入数据'
     )
     parser.add_argument(
         '--edgeiid',   # 只有在客户数 = 10倍的边缘数才生效
@@ -144,13 +138,13 @@ def args_parser():
     parser.add_argument(
         '--num_clients',
         type = int,
-        default = 30,
+        default = 4,
         help = 'number of all available clients'
     )
     parser.add_argument(
         '--num_edges',
         type = int,
-        default= 3,
+        default= 2,
         help= 'number of edges'
     )
 
@@ -158,18 +152,16 @@ def args_parser():
     # 定义clients及其分配样本量的关系
     parser.add_argument(
         '--self_sample',
-        default= -1,
+        default= 0,
         type=int,
         help='>=0: set sample of each client， -1: auto samples'
     )
-
     # 将映射关系转换为JSON格式，主键个数必须等于num_edges，value为-1表示all samples
     sample_mapping_json = json.dumps({
         "0": 3000,
         "1": 2000,
         "2": 5000,
-        "3": 10000,
-        "4": -1,
+        "3": 6000,
     })
     parser.add_argument(
         '--sample_mapping',
@@ -235,7 +227,7 @@ def args_parser():
     parser.add_argument(
         '--test_on_all_samples',
         type = int,
-        default = 1,
+        default = 0,
         help = '1 means test on all samples, 0 means test samples will be split averagely to each client'
     )
     # 定义edges及其下属clients的映射关系
@@ -246,9 +238,8 @@ def args_parser():
         help = '1 means mapping is active, 0 means mapping is inactive'
     )
     mapping = {
-        "0": [0, 1, 2, 13, 14, 15, 18],
-        "1": [3, 4, 5, 10, 11, 16],
-        "2": [6, 7, 8, 9, 12, 17, 19],
+        "0": [0, 1],
+        "1": [2, 3],
     }
     # 将映射关系转换为JSON格式
     mapping_json = json.dumps(mapping)
@@ -285,34 +276,6 @@ def args_parser():
         help = '1 means mapping is active, 0 means mapping is inactive'
     )
 
-
-    # 模型攻击参数
-    parser.add_argument(
-        '--attack_flag',
-        type = int,
-        default = 1,
-        help = 'trigger of attack,1 means on 0 means off'
-    )
-    attack_mapping = {
-        "0": [0, 2],
-        "1": [3],
-        "2": [8],
-    }
-    # 将映射关系转换为JSON格式
-    attack_mapping_json = json.dumps(attack_mapping)
-    parser.add_argument(
-        '--attack_mapping',
-        type = str,
-        default = attack_mapping_json,
-        help = 'mapping of edges and their selfish clients'
-    )
-    parser.add_argument(
-        '--attack_mode',
-        type = str,
-        default = "flip",
-        help = 'mode of attack, such as: zero、random、flip'
-    )
-
     # 新~数据划分方法
     parser.add_argument(
         '--partition',
@@ -326,6 +289,20 @@ def args_parser():
         type = float,
         default = 10,
         help = 'dir分布的超参数'
+    )
+
+    # PBQ 新增训练方式 1.05
+    parser.add_argument(
+        '--mode',
+        type = int,
+        default = 0,
+        help = '训练模式，0 正常; 1 概率p不上传; 2 概率p误上传 '
+    )
+    parser.add_argument(
+        '--probability',
+        type = float,
+        default = 0.3,
+        help = '1,2模式下的概率p'
     )
 
     args = parser.parse_args()

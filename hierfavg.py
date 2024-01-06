@@ -5,12 +5,11 @@ import time
 from threading import Thread
 
 from matplotlib import pyplot as plt
-from torch import multiprocessing
 
-from average import models_are_equal
+from models.celeba_gan import GAN, Generator, Discriminator
+from models.shakespare_rnn import RNNModel
 from models.synthetic_logistic import LogisticRegression_SYNTHETIC
 from options import args_parser
-from tensorboardX import SummaryWriter
 import torch
 from client import Client
 from edge import Edge
@@ -23,8 +22,6 @@ from models.mnist_cnn import mnist_lenet, mnist_cnn
 from models.cifar_cnn_3conv_layer import cifar_cnn_3conv
 from models.cifar_resnet import ResNet18, ResNet18_YWX
 from models.mnist_logistic import LogisticRegression_MNIST
-import os
-import torch.multiprocessing as mp
 
 
 def get_client_class(args, clients):
@@ -48,11 +45,11 @@ def get_edge_class(args, edges, clients):
             train_loader = client.train_loader
             distribution = show_distribution(train_loader, args)
             label = np.argmax(distribution)
-            edge_class[i].append(label)
+            edge_class[i].append(list(label))
     print(f'class distribution among edge {edge_class}')
 
 
-def initialize_edges_iid(num_edges, clients, client_class_dis):
+def initialize_edges_iid(num_edges, clients, client_class_dis, mode):
     """
     This function is specially designed for partiion for 10*L users, 1-class per user, but the distribution among edges is iid,
     10 clients per edge, each edge have 10 classes
@@ -74,12 +71,9 @@ def initialize_edges_iid(num_edges, clients, client_class_dis):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-        edges.append(Edge(id=eid,
-                          cids=assigned_clients_idxes,
-                          shared_layers=copy.deepcopy(clients[0].model.shared_layers)))
+        edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
         [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
-        edges[eid].all_trainsample_num = sum(edges[eid].sample_registration.values())
-        p_clients[eid] = [sample / float(edges[eid].all_trainsample_num)
+        p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                           for sample in list(edges[eid].sample_registration.values())]
         edges[eid].refresh_edgeserver()
     # And the last one, eid == num_edges -1
@@ -93,18 +87,15 @@ def initialize_edges_iid(num_edges, clients, client_class_dis):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-    edges.append(Edge(id=eid,
-                      cids=assigned_clients_idxes,
-                      shared_layers=copy.deepcopy(clients[0].model.shared_layers)))
+    edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
     [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
-    edges[eid].all_trainsample_num = sum(edges[eid].sample_registration.values())
-    p_clients[eid] = [sample / float(edges[eid].all_trainsample_num)
+    p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                       for sample in list(edges[eid].sample_registration.values())]
     edges[eid].refresh_edgeserver()
     return edges, p_clients
 
 
-def initialize_edges_niid(num_edges, clients, client_class_dis):
+def initialize_edges_niid(num_edges, clients, client_class_dis, mode):
     """
     This function is specially designed for partiion for 10*L users, 1-class per user, but the distribution among edges is iid,
     10 clients per edge, each edge have 5 classes
@@ -135,12 +126,9 @@ def initialize_edges_niid(num_edges, clients, client_class_dis):
                         set(client_class_dis[label_backup]) - set(assigned_client_idx))
                 for idx in assigned_client_idx:
                     assigned_clients_idxes.append(idx)
-        edges.append(Edge(id=eid,
-                          cids=assigned_clients_idxes,
-                          shared_layers=copy.deepcopy(clients[0].model.shared_layers)))
+        edges.append(Edge(id=eid, cids=assigned_clients_idxes,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
         [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
-        edges[eid].all_trainsample_num = sum(edges[eid].sample_registration.values())
-        p_clients[eid] = [sample / float(edges[eid].all_trainsample_num)
+        p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                           for sample in list(edges[eid].sample_registration.values())]
         edges[eid].refresh_edgeserver()
 
@@ -154,12 +142,9 @@ def initialize_edges_niid(num_edges, clients, client_class_dis):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-    edges.append(Edge(id=eid,
-                      cids=assigned_clients_idxes,
-                      shared_layers=copy.deepcopy(clients[0].model.shared_layers)))
+    edges.append(Edge(id=eid,cids=assigned_clients_idxes,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
     [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
-    edges[eid].all_trainsample_num = sum(edges[eid].sample_registration.values())
-    p_clients[eid] = [sample / float(edges[eid].all_trainsample_num)
+    p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                       for sample in list(edges[eid].sample_registration.values())]
     edges[eid].refresh_edgeserver()
     return edges, p_clients
@@ -195,6 +180,36 @@ def fast_all_clients_test(v_test_loader, global_nn, device):
     return correct_all, total_all
 
 
+def fast_all_clients_test_gan(v_test_loader, global_gan, device):
+    global_gan.generator.eval()
+    global_gan.discriminator.eval()
+    correct_predictions = 0
+    total_predictions = 0
+
+    with torch.no_grad():
+        for data in v_test_loader:
+            real_images, _ = data
+            real_images = real_images.to(device)
+            batch_size = real_images.size(0)
+            total_predictions += 2 * batch_size  # Counting both real and fake images
+
+            # Generate fake images
+            noise = torch.randn(batch_size, 100, 1, 1).to(device)
+            fake_images = global_gan.generator(noise)
+
+            # Compute loss for real and fake images
+            real_labels = torch.ones(batch_size, 1).to(device)
+            fake_labels = torch.zeros(batch_size, 1).to(device)
+            real_output = global_gan.discriminator(real_images)
+            fake_output = global_gan.discriminator(fake_images)
+
+            # Calculate 'accuracy'
+            correct_predictions += ((real_output > 0.5) == real_labels).sum().item()
+            correct_predictions += ((fake_output < 0.5) == fake_labels).sum().item()
+
+    return correct_predictions, total_predictions
+
+
 def initialize_global_nn(args):
     if args.dataset == 'mnist':
         if args.model == 'lenet':
@@ -214,7 +229,7 @@ def initialize_global_nn(args):
             global_nn = mnist_cnn(input_channels=1, output_channels=62)
         else:
             raise ValueError(f"Model{args.model} not implemented for femnist")
-    elif args.dataset == 'cifar10' or 'cinic10':
+    elif args.dataset == 'cifar10' or args.dataset == 'cinic10':
         if args.model == 'cnn_complex':
             global_nn = cifar_cnn_3conv(input_channels=3, output_channels=10)
         elif args.model == 'resnet18':
@@ -226,6 +241,12 @@ def initialize_global_nn(args):
     elif args.dataset == 'synthetic':
         if args.model == 'logistic':
             global_nn = LogisticRegression_SYNTHETIC(args.dimension, args.num_class)
+    elif args.dataset == 'shakespare':
+        if args.model == 'rnn':
+            global_nn = RNNModel()
+    elif args.dataset == 'celeba':
+        if args.model == 'gan':
+            global_nn = GAN(Generator(), Discriminator())
     else:
         raise ValueError(f"Dataset {args.dataset} Not implemented")
     return global_nn
@@ -243,8 +264,9 @@ def HierFAVG(args):
     device = cuda_to_use if torch.cuda.is_available() else "cpu"
     print(f'Using device {device}')
     # Build dataloaders
-    train_loaders, test_loaders, share_loaders, v_test_loader = get_dataloaders(args)
-    if args.show_dis:
+    train_loaders, test_loaders, v_test_loader = get_dataloaders(args)
+
+    if args.show_dis and args.dataset != 'shakespare':
         # 显示客户端的训练集和测试集分布
         for i in range(args.num_clients):
             # 显示训练集分布
@@ -261,15 +283,7 @@ def HierFAVG(args):
                 test_distribution = show_distribution(test_loader, args)
                 print("Test dataloader {} distribution:".format(i))
                 print(test_distribution)
-        # 显示边缘服务器的共享数据分布
-        if args.niid_share:
-            for eid in range(args.num_edges):
-                print("Edge {} shared data size: {}".format(eid, len(share_loaders[eid].dataset)))
-                shared_data_distribution = show_distribution(share_loaders[eid], args)
-                print("Edge {} shared data distribution:".format(eid))
-                print(shared_data_distribution)
-        else:
-            print("Edges  has no shared data")
+
         print("Cloud valid data size: {}".format(len(v_test_loader.dataset)))
         valid_data_distribution = show_distribution(v_test_loader, args)
         print("Cloud valid data distribution: {}".format(valid_data_distribution))
@@ -279,13 +293,6 @@ def HierFAVG(args):
     if args.active_mapping == 1:
         # 提取映射关系参数并将其解析为JSON对象
         mapping = json.loads(args.mapping)
-
-    # 读取attack_mapping配置信息
-    attack_mapping = None
-    if args.attack_flag == 1: # 表示开启模型攻击
-        # 提取映射关系参数并将其解析为JSON对象
-        attack_mapping = json.loads(args.attack_mapping)
-
 
     # 初始化 客户集 和 边缘服务器集
     clients = []
@@ -297,12 +304,6 @@ def HierFAVG(args):
                               args=args,
                               device=device))
 
-    initilize_parameters = list(clients[0].model.shared_layers.parameters())
-    nc = len(initilize_parameters)
-    for client in clients:
-        user_parameters = list(client.model.shared_layers.parameters())
-        for i in range(nc):
-            user_parameters[i].data[:] = initilize_parameters[i].data[:]
 
     # Initialize edge server and assign clients to the edge server
     edges = []
@@ -315,12 +316,12 @@ def HierFAVG(args):
             client_class_dis = get_client_class(args, clients)
             edges, p_clients = initialize_edges_iid(num_edges=args.num_edges,
                                                     clients=clients,
-                                                    client_class_dis=client_class_dis)
+                                                    client_class_dis=client_class_dis, mode=args.mode)
         elif args.edgeiid == 0:
             client_class_dis = get_client_class(args, clients)
             edges, p_clients = initialize_edges_niid(num_edges=args.num_edges,
                                                      clients=clients,
-                                                     client_class_dis=client_class_dis)
+                                                     client_class_dis=client_class_dis, mode=args.mode)
         else:
             # This is randomly assign the clients to edges
             for i in range(args.num_edges):
@@ -335,22 +336,15 @@ def HierFAVG(args):
                         selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
                 print(f"Edge {i} has clients {selected_cids}")
 
-                if args.attack_flag == 1: # 如果开启了模型攻击，就要构造每个edge的scids
-                    selfish_cids = attack_mapping[str(i)]
-                else:  selfish_cids = []
-                print(f"Edge {i} has selfish clients {selfish_cids}")
-
-                cids = list(set(cids) - set(selected_cids))
-                edges.append(Edge(id=i, cids=selected_cids,
-                                  shared_layers=copy.deepcopy(clients[0].model.shared_layers),
-                                  scids=selfish_cids, share_dataloader=share_loaders[i]))
+                cids = list(set(cids) - set(selected_cids))    # 这里是GAN也没关系，反正都是模型类
+                edges.append(Edge(id=i,cids=selected_cids, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=args.mode))
 
                 # 注册客户信息并按需把共享数据集给到客户端
                 for cid in selected_cids:
                     edges[i].client_register(clients[cid])
 
-                edges[i].all_trainsample_num = sum(edges[i].sample_registration.values())
-                p_clients[i] = [sample / float(edges[i].all_trainsample_num) for sample in
+                all_trainsample_num = sum(edges[i].sample_registration.values())
+                p_clients[i] = [sample / float(all_trainsample_num) for sample in
                                 list(edges[i].sample_registration.values())]
     else:
         # This is randomly assign the clients to edges
@@ -366,21 +360,14 @@ def HierFAVG(args):
                     selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
             print(f"Edge {i} has clients {selected_cids}")
             cids = list(set(cids) - set(selected_cids))
-            if args.attack_flag == 1:  # 如果开启了模型攻击，就要构造每个edge的scids
-                selfish_cids = attack_mapping[str(i)]
-            else:
-                selfish_cids = []
-            print(f"Edge {i} has selfish clients {selfish_cids}")
-            edges.append(Edge(id=i, cids=selected_cids,
-                              shared_layers=copy.deepcopy(clients[0].model.shared_layers),
-                              scids=selfish_cids, share_dataloader=share_loaders[i]))
+            edges.append(Edge(id=i,cids=selected_cids,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=args.mode))
 
             # 注册客户信息并按需把共享数据集给到客户端
             for cid in selected_cids:
                 edges[i].client_register(clients[cid])
 
-            edges[i].all_trainsample_num = sum(edges[i].sample_registration.values())
-            p_clients[i] = [sample / float(edges[i].all_trainsample_num) for sample in
+            all_trainsample_num = sum(edges[i].sample_registration.values())
+            p_clients[i] = [sample / float(all_trainsample_num) for sample in
                             list(edges[i].sample_registration.values())]
 
     # Initialize cloud server
@@ -407,7 +394,6 @@ def HierFAVG(args):
         cloud.refresh_cloudserver()
         [cloud.edge_register(edge=edge) for edge in edges]
         all_loss_sum = 0.0
-        all_acc_sum = 0.0
         print(f"云端更新   第 {num_comm} 轮")
         for num_edgeagg in range(args.num_edge_aggregation):  # 边缘聚合
             print(f"边缘更新   第 {num_edgeagg} 轮")
@@ -415,8 +401,15 @@ def HierFAVG(args):
             edge_threads = []
             edge_loss = [0.0] * len(edges)
             edge_sample = [0] * len(edges)
-            for edge in edges:
-                edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample))
+            for edge in edges: # 多线程第一阶段：edge并行训练
+                edge_thread = Thread(target=process_edge_train, args=(edge, clients, args.num_local_update, device, edges))
+                edge_threads.append(edge_thread)
+                edge_thread.start()
+            for edge_thread in edge_threads:
+                edge_thread.join()
+            edge_threads.clear()   # 清空edge训练的线程，准备装入edge聚合的线程
+            for edge in edges:  # 多线程第二阶段：edge并行聚合
+                edge_thread = Thread(target=process_edge_agg, args=(edge, edge_loss, edge_sample))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
@@ -430,7 +423,7 @@ def HierFAVG(args):
                 print("Warning: Total number of samples is zero. Cannot compute all_loss.")
             print("train loss per edge on all samples: {}".format(edge_loss))
 
-        print(models_are_equal(edges[0].shared_state_dict, edges[1].shared_state_dict))
+        # print(models_are_equal(edges[0].shared_state_dict, edges[1].shared_state_dict))
         # 开始云端聚合
         for edge in edges:
             edge.send_to_cloudserver(cloud)
@@ -443,7 +436,10 @@ def HierFAVG(args):
 
         # 云端测试
         print(f"Cloud 测试")
-        correct_all_v, total_all_v = fast_all_clients_test(v_test_loader, global_nn, device)
+        if args.model == 'gan':
+            correct_all_v, total_all_v = fast_all_clients_test_gan(v_test_loader, global_nn, device)
+        else:
+            correct_all_v, total_all_v = fast_all_clients_test(v_test_loader, global_nn, device)
         avg_acc_v = correct_all_v / total_all_v  # 测试精度
         print('Cloud Valid Accuracy {}'.format(avg_acc_v))
         # 在轮次结束时记录相对于开始时间的时间差, 记录云端轮的测试精度
@@ -459,7 +455,7 @@ def HierFAVG(args):
     plt.show()
 
 
-def train_client(client, edge, num_iter, device, return_dict, client_id):
+def train_client(client, edge, num_iter, device, all_edges):
     # print(f"Client {client.id} 本地迭代开始")
     # 如果设备是GPU，则设置相应的CUDA设备
     if torch.cuda.is_available():
@@ -467,38 +463,40 @@ def train_client(client, edge, num_iter, device, return_dict, client_id):
     # 客户端与边缘服务器同步
     edge.send_to_client(client)
     client.sync_with_edgeserver()
+
     # 执行本地迭代
-    client_loss = client.local_update(num_iter=num_iter, device=device)
+    client.local_update(num_iter=num_iter, device=device)
     # 将迭代后的模型发送回边缘服务器
-    client.send_to_edgeserver(edge)
+    client.send_to_edgeserver(edge, all_edges)
     # 存储结果
-    return_dict[client_id] = client_loss
     # print(f"Client {client.id} 本地迭代结束")
 
-def process_edge(edge, clients, args, device, edge_loss, edge_sample):
-    # 一次边缘迭更新 = n个本地迭代+ 一次边缘聚合
-    # print(f"Edge {edge.id} 边缘更新开始")
+
+def process_edge_train(edge, clients, num_local_update, device, all_edges):
+    edge.refresh_edgeserver()  # 清空上一轮的客户本地模型参数、本地样本量、本地训练损失
+    # 一次边缘迭更新 = n个本地迭代 + 一次边缘聚合
+    print(f"Edge {edge.id} 的配对客户 {edge.id_registration}")
     # 使用多线程进行客户迭代
     threads = []
-    return_dict = {}  # 在线程中，可以直接使用普通字典
-    for selected_cid in edge.cids:
+    for selected_cid in edge.id_registration:
         client = clients[selected_cid]
         thread = Thread(target=train_client,
-                        args=(client, edge, args.num_local_update, device, return_dict, selected_cid))
+                        args=(client, edge, num_local_update, device, all_edges))
         threads.append(thread)
         thread.start()
     # 等待所有线程完成
     for thread in threads:
         thread.join()
-    # 边缘聚合
-    # print(f"Edge {edge.id} 边缘聚合开始")
-    edge.aggregate(args, device)
-    # print(f"Edge {edge.id} 边缘聚合结束")
-    # 更新边缘训练损失
-    edge_loss[edge.id] = sum(return_dict.values())
-    edge_sample[edge.id] = sum(edge.sample_registration.values())
-    # print(f"Edge {edge.id} 边缘更新结束")
 
+def process_edge_agg(edge, edge_loss, edge_sample):
+    # 边缘聚合
+    edge.aggregate()
+    # 更新边缘训练损失
+    if len(edge.train_losses) != 0:
+        edge_loss[edge.id] = sum(edge.train_losses) / len(edge.train_losses)
+    else: # 如果没有客户上传模型，损失为0
+        edge_loss[edge.id] = 0.0
+    edge_sample[edge.id] = sum(edge.sample_registration)
 
 def main():
     args = args_parser()

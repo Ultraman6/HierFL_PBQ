@@ -7,14 +7,12 @@
 # 5. Server receives the aggregated information from the cloud server
 
 import copy
-
-from attack.byzantine_attack import perform_byzantine_attack
 from average import average_weights, models_are_equal
 
 
 class Edge():
 
-    def __init__(self, id, cids, shared_layers, scids=None, share_dataloader=None):
+    def __init__(self, id, cids, shared_layers, mode):
         """
         id: edge id
         cids: ids of the clients under this edge
@@ -31,41 +29,40 @@ class Edge():
         :return:
         """
         self.id = id
-        self.cids = cids
-        self.scids = scids  # 暂存自私客户
+        self.cids = cids  # 保存初始的客户id集
         self.receiver_buffer = {}  # 暂存客户端上传的模型参数
         self.shared_state_dict = {}  # 全局模型参数
-        self.id_registration = []
+        self.id_registration = []  # 当前轮次的客户
         self.sample_registration = {}
-        self.all_trainsample_num = 0
         self.shared_state_dict = shared_layers.state_dict()
-        self.share_dataloader = share_dataloader
+        self.train_losses = []
+        self.mode = mode  # edge需要mode判断对不上传的客户是否保留注册信息
 
     def refresh_edgeserver(self):
         self.receiver_buffer.clear()
-        del self.id_registration[:]
         self.sample_registration.clear()
+        self.train_losses.clear()
+        if self.mode != 2:
+            self.id_registration = self.cids
         return None
 
-    def client_register(self, client): # 注册用户信息同时决定是否把共享数据集传入
-        self.id_registration.append(client.id)
+    def client_register(self, client):
+        if client.id not in self.id_registration:
+            self.id_registration.append(client.id)
         self.sample_registration[client.id] = len(client.train_loader.dataset)
-        # 数据量还要加上共享数据集
-        if self.share_dataloader != None:
-            self.sample_registration[client.id] += len(self.share_dataloader.dataset)
-            client.combine_share_data(self.share_dataloader)
 
-    def receive_from_client(self, client_id, cshared_state_dict):
-        self.receiver_buffer[client_id] = cshared_state_dict
+    def receive_from_client(self, client_id, cshared_state_dict, train_loss, train_sample_num):
+        self.receiver_buffer[client_id] = cshared_state_dict  # 客户上传模型同时上传，本地损失，本地样本数
+        self.train_losses.append(train_loss)
+        self.sample_registration[client_id] = train_sample_num
         return None
 
-    def aggregate(self, args, device):
+    def aggregate(self):
         # Check if the attack is enabled and perform the attack if necessary
-        if args.attack_flag == 1:  # 判断是否开启模型攻击
-            attack_mode = args.attack_mode  # 构造字典，包含每个客户的数据量和本地模型参数
-            received_dict = {cid:(self.sample_registration[cid], dict) for cid, dict in self.receiver_buffer.items()}
-            self.shared_state_dict = average_weights(perform_byzantine_attack(received_dict, self.scids, attack_mode, device))
-        else:   # 构造列表，包含(数据量，本地模型参数)的元组
+        self.id_registration = list(self.receiver_buffer.keys())  # 聚合时复盘哪些客户给我传了模型
+        print('edge{} 接收的客户：{}'.format(self.id, str(self.id_registration)))
+        # print('edge{} 接收的客户的损失：{}'.format(self.id, str(self.train_losses)))
+        if len(self.receiver_buffer) != 0:
             received_dict = [(self.sample_registration[cid], dict) for cid, dict in self.receiver_buffer.items()]
             self.shared_state_dict = average_weights(received_dict)
         return None

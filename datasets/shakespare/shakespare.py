@@ -1,25 +1,12 @@
 import json
-
 import numpy as np
-import requests
 import torch
-from torch.utils.data.dataset import Dataset
-from torchvision import datasets
-from tqdm import tqdm
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import Dataset, ConcatDataset
 import os
-
 from datasets.shakespare.download import download_shakespeare_dataset
 from datasets.shakespare.language_utils import word_to_indices, letter_to_index, VOCAB_SIZE
 
-class ShakespeareDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]
 
 
 def read_data(train_data_dir, test_data_dir):
@@ -93,16 +80,17 @@ def batch_data(data, batch_size):
     # loop through mini-batches
     batch_data = list()
     for i in range(0, len(data_x), batch_size):
-        batched_x = data_x[i : i + batch_size]
-        batched_y = data_y[i : i + batch_size]
-        batched_x = torch.from_numpy(np.asarray(process_x(batched_x)))
-        batched_y = torch.from_numpy(np.asarray(process_y(batched_y)))
+        batched_x = data_x[i: i + batch_size]
+        batched_y = data_y[i: i + batch_size]    #一定要转long类型，不然优化器无法读入
+        batched_x = torch.from_numpy(np.asarray(process_x(batched_x))).long()
+        batched_y = torch.from_numpy(np.asarray(process_y(batched_y))).long()
         batch_data.append((batched_x, batched_y))
     return batch_data
 
-def load_partition_data_shakespeare( batch_size):
-    train_path = "~/shakespeare/train"
-    test_path = "~/shakespeare/test"
+
+def load_partition_data_shakespeare(dataset_root, batch_size):
+    train_path = dataset_root + "/train"
+    test_path = dataset_root + "/test"
     users, groups, train_data, test_data = read_data(train_path, test_path)
 
     if len(groups) == 0:
@@ -115,6 +103,9 @@ def load_partition_data_shakespeare( batch_size):
     train_data_global = list()
     test_data_global = list()
     client_idx = 0
+    # 初始化全局测试数据的 x 和 y
+    merged_test_x = []
+    merged_test_y = []
     for u, g in zip(users, groups):
         user_train_data_num = len(train_data[u]["x"])
         user_test_data_num = len(test_data[u]["x"])
@@ -131,59 +122,53 @@ def load_partition_data_shakespeare( batch_size):
         test_data_local_dict[client_idx] = test_batch
         train_data_global += train_batch
         test_data_global += test_batch
+
+        # 将当前客户端的测试数据合并到全局测试数据中
+        merged_test_x.extend(test_data[u]["x"])
+        merged_test_y.extend(test_data[u]["y"])
+
         client_idx += 1
     client_num = client_idx
     output_dim = VOCAB_SIZE
 
-    return train_data_global, test_data_global, client_num, output_dim
+    # 将合并后的全局测试数据转换为字典
+    merged_test_data = {"x": merged_test_x, "y": merged_test_y}
+    # test_data_g = [item for client_data in test_data for item in client_data]
+    return train_data_local_dict, test_data_local_dict, train_data_global, merged_test_data, client_num, output_dim
 
-# Example usage
-if __name__ == "__main__":
-    dataset_dir = '~/shakespeare'  # Replace with your desired path
+
+def merge_data_loaders(batched_data_list, target_client_num, kwargs):
+
+    original_client_num = len(batched_data_list)
+    clients_per_merged_client = original_client_num // target_client_num
+
+    merged_data_loaders = []
+    for i in range(0, original_client_num, clients_per_merged_client):
+        # 合并指定范围内的 DataLoader
+        datasets_to_merge = [batched_data_list[j] for j in range(i, min(i + clients_per_merged_client, original_client_num))]
+        merged_dataset = ConcatDataset(datasets_to_merge)
+        # print(type(merged_dataset))
+        merged_loader = DataLoader(merged_dataset, batch_size=None, shuffle=True, **kwargs)
+        merged_data_loaders.append(merged_loader)
+
+    return merged_data_loaders
+
+
+def get_shakespare(dataset_dir, args):
+    is_cuda = args.cuda
+    kwargs = {'num_workers': args.num_workers, 'pin_memory': True} if is_cuda else {}
     # 检查数据集是否存在
     dataset_root = os.path.join(dataset_dir, 'shakespare')
     if not (os.path.exists(dataset_root)):
         print("shakespare数据集不存在，正在下载...")
         download_shakespeare_dataset(dataset_dir)
 
-    train_data_global, test_data_globalload_partition_data_shakespeare(8)
+    (train_data_local_dict, test_data_local_dict, train_data_global,
+     test_data_global, client_num, output_dim) = load_partition_data_shakespeare(args.dataset_root + '/shakespare',
+                                                                                 args.train_batch_size)
 
-# def get_shakespare(dataset_dir, args):
-#     is_cuda = args.cuda
-#     kwargs = {'num_workers': args.num_workers, 'pin_memory': True} if is_cuda else {}
-#
-#     # 检查数据集是否存在
-#     dataset_root = os.path.join(dataset_dir, 'shakespare')
-#     if not (os.path.exists(dataset_root)):
-#         print("shakespare数据集不存在，正在下载...")
-#         download_shakespeare_dataset(dataset_dir)
-#
-#     train_data_global, test_data_global = load_partition_data_shakespeare(args.batch_size)
-#     train_dataset = ShakespeareDataset(train_data_global)
-#     test_dataset = ShakespeareDataset(test_data_global)
-#
-#
-#     test_set_size = len(test)
-#     subset_size = int(test_set_size * args.test_ratio)  # 例如，保留20%的数据
-#     # 生成随机索引来创建子集
-#     indices = list(range(test_set_size))
-#     subset_indices = random.sample(indices, subset_size)
-#     # 创建子集
-#     subset = Subset(test, subset_indices)
-#     # 使用子集创建 DataLoader
-#     v_test_loader = DataLoader(subset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
-#
-#     train_loaders = split_data(train, args, kwargs)
-#
-#     test_loaders = []
-#     if args.test_on_all_samples == 1:
-#         # 将整个测试集分配给每个客户端
-#         for i in range(args.num_clients):
-#             test_loader = torch.utils.data.DataLoader(
-#                 test, batch_size=args.test_batch_size, shuffle=False, **kwargs
-#             )
-#             test_loaders.append(test_loader)
-#     else:
-#         test_loaders = split_data(test, args, kwargs)
-#
-#     return train_loaders, test_loaders, v_test_loader
+    train_loaders = merge_data_loaders(train_data_local_dict, args.num_clients, kwargs)
+    test_loaders = merge_data_loaders(test_data_local_dict, args.num_clients, kwargs)
+
+    # 这里返回的是dataloader
+    return train_loaders, test_loaders, batch_data(test_data_global, args.test_batch_size)
