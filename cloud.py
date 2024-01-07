@@ -24,7 +24,7 @@ class Cloud():
         return None
 
     def edge_register(self, edge):
-        self.id_registration.append(edge.id)
+        self.id_registration.append(edge.id)  # 记录edge的总样本量
         self.sample_registration[edge.id] = sum(edge.sample_registration.values())
         return None
 
@@ -33,8 +33,10 @@ class Cloud():
         return None
 
     def aggregate(self, args):
-        received_dict = [(self.sample_registration[eid], dict) for eid, dict in self.receiver_buffer.items()]
-        self.shared_state_dict = average_weights(received_dict)
+        received_dict = [(self.sample_registration[eid], dict) for eid, dict in self.receiver_buffer.items()
+                         if self.sample_registration[eid] > 0]
+        if len(received_dict) != 0: # 只有当边缘模型个数>=1时，才进行聚合
+            self.shared_state_dict = average_weights(received_dict)
         return None
 
     def send_to_edge(self, edge):

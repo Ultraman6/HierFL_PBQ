@@ -37,11 +37,13 @@ class Edge():
         self.shared_state_dict = shared_layers.state_dict()
         self.train_losses = []
         self.mode = mode  # edge需要mode判断对不上传的客户是否保留注册信息
+        # self.now_all_sample_num = 0   # 目前的总样本数
 
     def refresh_edgeserver(self):
         self.receiver_buffer.clear()
         self.sample_registration.clear()
         self.train_losses.clear()
+        # self.now_all_sample_num = 0  # 新的边缘轮开始需要清0
         if self.mode != 2:
             self.id_registration = self.cids
         return None

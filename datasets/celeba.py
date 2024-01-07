@@ -1,5 +1,7 @@
 import os
 import random
+
+import torch
 from torch.utils.data import DataLoader, Subset
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
@@ -26,11 +28,27 @@ def get_celeba(dataset_root, args):
 
     test_loaders = []
     if args.test_on_all_samples == 1:
+        # 将整个测试集分配给每个客户端
         for i in range(args.num_clients):
-            test_loader = DataLoader(test, batch_size=args.test_batch_size, shuffle=False, **kwargs)
+            test_loader = torch.utils.data.DataLoader(
+                test, batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
             test_loaders.append(test_loader)
     else:
-        test_loaders = split_data(test, args, kwargs, is_shuffle=False)
+        # 平均分配测试集
+        num_samples_per_client = len(test) // args.num_clients
+        test_indices = list(range(len(test)))
+        for i in range(args.num_clients):
+            # 为每个客户端分配样本
+            start_idx = i * num_samples_per_client
+            end_idx = len(test) if i == args.num_clients - 1 else (i + 1) * num_samples_per_client
+            client_indices = test_indices[start_idx:end_idx]
+            # 创建每个客户端的数据加载器
+            client_test_loader = torch.utils.data.DataLoader(
+                torch.utils.data.Subset(test, client_indices),
+                batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
+            test_loaders.append(client_test_loader)
 
     # Creating a validation subset from the test set
     test_set_size = len(test)

@@ -84,7 +84,7 @@ class Client():
                                                  self.model.shared_layers.state_dict()),
                                              train_loss=self.train_loss, train_sample_num=len(self.train_loader.dataset))
         elif self.mode == 1:  # 根据概率 p 发送给匹配的 server
-            if random.random() <= self.p:
+            if random.random() > self.p:
                 matched_edge.receive_from_client(client_id=self.id,
                                                  cshared_state_dict=copy.deepcopy(
                                                      self.model.shared_layers.state_dict()),
@@ -92,7 +92,7 @@ class Client():
             else:
                 print(f"客户{self.id} 不发送给边缘服务器{matched_edge.id}")
         else:  # 模式 2，如果不发送给匹配的 server，随机选择一个其他的 server 发送
-            if random.random() <= self.p:
+            if random.random() > self.p:
                 matched_edge.receive_from_client(client_id=self.id,
                                                  cshared_state_dict=copy.deepcopy(
                                                      self.model.shared_layers.state_dict()),

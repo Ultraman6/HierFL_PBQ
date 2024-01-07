@@ -10,14 +10,14 @@ def args_parser():
     parser.add_argument(
         '--dataset',
         type = str,
-        default = 'celeba',
+        default = 'mnist',
         help = 'name of the dataset: mnist, cifar10, femnist, '
                'synthetic, cinic10, shakespare, celeba'
     )
     parser.add_argument(
         '--model',
         type = str,
-        default = 'gan',
+        default = 'cnn',
         help='name of model. mnist: logistic, lenet, cnn; '
              'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; '
              'femnist: logistic, lenet, cnn; synthetic: lr; '
@@ -82,7 +82,7 @@ def args_parser():
     parser.add_argument(
         '--lr',
         type = float,
-        default = 0.0001,
+        default = 0.01,
         help = 'learning rate of the SGD when trained on client'
     )
     parser.add_argument(
@@ -161,7 +161,7 @@ def args_parser():
         "0": 3000,
         "1": 2000,
         "2": 5000,
-        "3": 6000,
+        "3": 2000,
     })
     parser.add_argument(
         '--sample_mapping',
@@ -295,13 +295,13 @@ def args_parser():
     parser.add_argument(
         '--mode',
         type = int,
-        default = 0,
+        default = 1,
         help = '训练模式，0 正常; 1 概率p不上传; 2 概率p误上传 '
     )
     parser.add_argument(
         '--probability',
         type = float,
-        default = 0.3,
+        default = 0.8,
         help = '1,2模式下的概率p'
     )
 

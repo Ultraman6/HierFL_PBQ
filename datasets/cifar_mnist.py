@@ -477,8 +477,8 @@ def get_mnist(dataset_root, args):
                           download=True, transform=transform)
     # note: is_shuffle here also is a flag for differentiating train and test
     train_loaders = split_data(train, args, kwargs, is_shuffle=True)
-
     test_loaders = []
+
     if args.test_on_all_samples == 1:
         # 将整个测试集分配给每个客户端
         for i in range(args.num_clients):
@@ -487,7 +487,20 @@ def get_mnist(dataset_root, args):
             )
             test_loaders.append(test_loader)
     else:
-        test_loaders = split_data(test, args, kwargs, is_shuffle=False)
+        # 平均分配测试集
+        num_samples_per_client = len(test) // args.num_clients
+        test_indices = list(range(len(test)))
+        for i in range(args.num_clients):
+            # 为每个客户端分配样本
+            start_idx = i * num_samples_per_client
+            end_idx = len(test) if i == args.num_clients - 1 else (i + 1) * num_samples_per_client
+            client_indices = test_indices[start_idx:end_idx]
+            # 创建每个客户端的数据加载器
+            client_test_loader = torch.utils.data.DataLoader(
+                torch.utils.data.Subset(test, client_indices),
+                batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
+            test_loaders.append(client_test_loader)
 
 
     test_set_size = len(test)
@@ -546,7 +559,6 @@ def get_cifar10(dataset_root, args):  # cifa10数据集下只能使用cnn_comple
     v_test_loader = DataLoader(subset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
     train_loaders = split_data(train, args, kwargs)
-
     test_loaders = []
     if args.test_on_all_samples == 1:
         # 将整个测试集分配给每个客户端
@@ -556,7 +568,20 @@ def get_cifar10(dataset_root, args):  # cifa10数据集下只能使用cnn_comple
             )
             test_loaders.append(test_loader)
     else:
-        test_loaders = split_data(test, args, kwargs)
+        # 平均分配测试集
+        num_samples_per_client = len(test) // args.num_clients
+        test_indices = list(range(len(test)))
+        for i in range(args.num_clients):
+            # 为每个客户端分配样本
+            start_idx = i * num_samples_per_client
+            end_idx = len(test) if i == args.num_clients - 1 else (i + 1) * num_samples_per_client
+            client_indices = test_indices[start_idx:end_idx]
+            # 创建每个客户端的数据加载器
+            client_test_loader = torch.utils.data.DataLoader(
+                torch.utils.data.Subset(test, client_indices),
+                batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
+            test_loaders.append(client_test_loader)
 
     return train_loaders, test_loaders, v_test_loader
 
@@ -596,20 +621,48 @@ def get_femnist(dataset_root, args):
     test_x = test_x.reshape(-1, 1, 28, 28)
 
 
-    train_ds = data.TensorDataset(torch.tensor(train_x), torch.tensor(train_y, dtype=torch.long))
-    train_ds.targets = train_y  # 添加targets属性
-    test_ds = data.TensorDataset(torch.tensor(test_x), torch.tensor(test_y, dtype=torch.long))
-    test_ds.targets = test_y  # 添加targets属性
+    train = data.TensorDataset(torch.tensor(train_x), torch.tensor(train_y, dtype=torch.long))
+    train.targets = train_y  # 添加targets属性
+    test = data.TensorDataset(torch.tensor(test_x), torch.tensor(test_y, dtype=torch.long))
+    test.targets = test_y  # 添加targets属性
 
-    v_test_loader = DataLoader(test_ds, batch_size=args.batch_size * args.num_clients,
-                               shuffle=False, **kwargs)
+    train_loaders = split_data(train, args, kwargs, is_shuffle=True)
+    test_loaders = []
+    if args.test_on_all_samples == 1:
+        # 将整个测试集分配给每个客户端
+        for i in range(args.num_clients):
+            test_loader = torch.utils.data.DataLoader(
+                test, batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
+            test_loaders.append(test_loader)
+    else:
+        # 平均分配测试集
+        num_samples_per_client = len(test) // args.num_clients
+        test_indices = list(range(len(test)))
+        for i in range(args.num_clients):
+            # 为每个客户端分配样本
+            start_idx = i * num_samples_per_client
+            end_idx = len(test) if i == args.num_clients - 1 else (i + 1) * num_samples_per_client
+            client_indices = test_indices[start_idx:end_idx]
+            # 创建每个客户端的数据加载器
+            client_test_loader = torch.utils.data.DataLoader(
+                torch.utils.data.Subset(test, client_indices),
+                batch_size=args.test_batch_size, shuffle=False, **kwargs
+            )
+            test_loaders.append(client_test_loader)
 
-    train_loaders = split_data(train_ds, args, kwargs, is_shuffle=True)
-    test_loaders = split_data(test_ds, args, kwargs, is_shuffle=False)
+    test_set_size = len(test)
+    subset_size = int(test_set_size * args.test_ratio)  # 例如，保留20%的数据
+    # 生成随机索引来创建子集
+    indices = list(range(test_set_size))
+    subset_indices = random.sample(indices, subset_size)
+    # 创建子集
+    subset = Subset(test, subset_indices)
+    # 使用子集创建 DataLoader
+    v_test_loader = DataLoader(subset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
     train_h5.close()
     test_h5.close()
-
     return train_loaders, test_loaders, v_test_loader
 
 

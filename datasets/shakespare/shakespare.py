@@ -170,5 +170,5 @@ def get_shakespare(dataset_dir, args):
     train_loaders = merge_data_loaders(train_data_local_dict, args.num_clients, kwargs)
     test_loaders = merge_data_loaders(test_data_local_dict, args.num_clients, kwargs)
 
-    # 这里返回的是dataloader
+    # 这里返回的是dataloader   这里没有实现云端的数据集的比例划分，整个测试集作为云端验证集
     return train_loaders, test_loaders, batch_data(test_data_global, args.test_batch_size)
