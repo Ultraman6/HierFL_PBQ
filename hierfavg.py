@@ -360,7 +360,7 @@ def HierFAVG(args):
                     selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
             print(f"Edge {i} has clients {selected_cids}")
             cids = list(set(cids) - set(selected_cids))
-            edges.append(Edge(id=i,cids=selected_cids,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=args.mode))
+            edges.append(Edge(id=i,cids=selected_cids,shared_layers=copy.deepcopy(clients[0].model.shared_layers), mode=args.mode, tao=args.tao))
 
             # 注册客户信息并按需把共享数据集给到客户端
             for cid in selected_cids:
@@ -401,15 +401,16 @@ def HierFAVG(args):
             edge_threads = []
             edge_loss = [0.0] * len(edges)
             edge_sample = [0] * len(edges)
+            flag = (num_edgeagg != 0)
             for edge in edges: # 多线程第一阶段：edge并行训练
-                edge_thread = Thread(target=process_edge_train, args=(edge, clients, args.num_local_update, device, edges))
+                edge_thread = Thread(target=process_edge_train, args=(edge, clients, args.num_local_update, device, edges, flag))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
                 edge_thread.join()
             edge_threads.clear()   # 清空edge训练的线程，准备装入edge聚合的线程
             for edge in edges:  # 多线程第二阶段：edge并行聚合
-                edge_thread = Thread(target=process_edge_agg, args=(edge, edge_loss, edge_sample))
+                edge_thread = Thread(target=process_edge_agg, args=(edge, edge_loss, edge_sample, flag))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
@@ -455,7 +456,7 @@ def HierFAVG(args):
     plt.show()
 
 
-def train_client(client, edge, num_iter, device, all_edges):
+def train_client(client, edge, num_iter, device, all_edges, flag):
     # print(f"Client {client.id} 本地迭代开始")
     # 如果设备是GPU，则设置相应的CUDA设备
     if torch.cuda.is_available():
@@ -467,12 +468,12 @@ def train_client(client, edge, num_iter, device, all_edges):
     # 执行本地迭代
     client.local_update(num_iter=num_iter, device=device)
     # 将迭代后的模型发送回边缘服务器
-    client.send_to_edgeserver(edge, all_edges)
+    client.send_to_edgeserver(edge, all_edges, flag)
     # 存储结果
     # print(f"Client {client.id} 本地迭代结束")
 
 
-def process_edge_train(edge, clients, num_local_update, device, all_edges):
+def process_edge_train(edge, clients, num_local_update, device, all_edges, flag):
     edge.refresh_edgeserver()  # 清空上一轮的客户本地模型参数、本地样本量、本地训练损失
     # 一次边缘迭更新 = n个本地迭代 + 一次边缘聚合
     print(f"Edge {edge.id} 的配对客户 {edge.id_registration}")
@@ -480,23 +481,24 @@ def process_edge_train(edge, clients, num_local_update, device, all_edges):
     threads = []
     for selected_cid in edge.id_registration:
         client = clients[selected_cid]
+
         thread = Thread(target=train_client,
-                        args=(client, edge, num_local_update, device, all_edges))
+                        args=(client, edge, num_local_update, device, all_edges, flag))
         threads.append(thread)
         thread.start()
     # 等待所有线程完成
     for thread in threads:
         thread.join()
 
-def process_edge_agg(edge, edge_loss, edge_sample):
+def process_edge_agg(edge, edge_loss, edge_sample, flag):
     # 边缘聚合
-    edge.aggregate()
+    edge.aggregate(flag)
     # 更新边缘训练损失
     if len(edge.train_losses) != 0:
-        edge_loss[edge.id] = sum(edge.train_losses) / len(edge.train_losses)
+        edge_loss[edge.id] += sum(edge.train_losses) / len(edge.train_losses)
     else: # 如果没有客户上传模型，损失为0
         edge_loss[edge.id] = 0.0
-    edge_sample[edge.id] = sum(edge.sample_registration)
+    edge_sample[edge.id] += sum(edge.sample_registration)
 
 def main():
     args = args_parser()

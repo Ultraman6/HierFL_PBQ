@@ -12,7 +12,7 @@ from average import average_weights, models_are_equal
 
 class Edge():
 
-    def __init__(self, id, cids, shared_layers, mode):
+    def __init__(self, id, cids, shared_layers, mode, tao):
         """
         id: edge id
         cids: ids of the clients under this edge
@@ -29,14 +29,17 @@ class Edge():
         :return:
         """
         self.id = id
-        self.cids = cids  # 保存初始的客户id集
+        self.cids = cids  # 保存初始和上一轮绑定的客户id集; 当选项3情况下，会由于间谍客户而改变
         self.receiver_buffer = {}  # 暂存客户端上传的模型参数
         self.shared_state_dict = {}  # 全局模型参数
-        self.id_registration = []  # 当前轮次的客户
+        self.id_registration = []  # 记录当前轮次的客户id，在非选项3情况下，充当cids使用
+
         self.sample_registration = {}
+        self.all_sample_num = 0  # 保存上一轮次的总样本量,只在注册和复盘时更新
         self.shared_state_dict = shared_layers.state_dict()
         self.train_losses = []
         self.mode = mode  # edge需要mode判断对不上传的客户是否保留注册信息
+        self.tao = tao # edge用聚合超参数
         # self.now_all_sample_num = 0   # 目前的总样本数
 
     def refresh_edgeserver(self):
@@ -44,7 +47,7 @@ class Edge():
         self.sample_registration.clear()
         self.train_losses.clear()
         # self.now_all_sample_num = 0  # 新的边缘轮开始需要清0
-        if self.mode != 2:
+        if self.mode < 2:
             self.id_registration = self.cids
         return None
 
@@ -52,21 +55,44 @@ class Edge():
         if client.id not in self.id_registration:
             self.id_registration.append(client.id)
         self.sample_registration[client.id] = len(client.train_loader.dataset)
+        self.all_sample_num += self.sample_registration[client.id]
 
-    def receive_from_client(self, client_id, cshared_state_dict, train_loss, train_sample_num):
+    # 新增逻辑，若为选项3，则此时客户可能上传间谍样本量(tao/s1),这时还不能更新总样本量，因为可能有间谍需要上一轮的总样本量
+    def receive_from_client(self, client_id, cshared_state_dict, train_loss, train_sample_num): # 非绑定客户上传两个样本量一个参数：本地原始、原绑定e的总样本量， 原edge的id
         self.receiver_buffer[client_id] = cshared_state_dict  # 客户上传模型同时上传，本地损失，本地样本数
         self.train_losses.append(train_loss)
-        self.sample_registration[client_id] = train_sample_num
+        self.sample_registration[client_id] = train_sample_num # 此时不关注train_sample_num的信息
         return None
 
-    def aggregate(self):
-        # Check if the attack is enabled and perform the attack if necessary
+    def aggregate(self, flag):
         self.id_registration = list(self.receiver_buffer.keys())  # 聚合时复盘哪些客户给我传了模型
+        self.all_sample_num = 0  # 准备接受新的客户上传的样本量
+        # 梯度非绑定用户上传的信息
         print('edge{} 接收的客户：{}'.format(self.id, str(self.id_registration)))
-        # print('edge{} 接收的客户的损失：{}'.format(self.id, str(self.train_losses)))
-        if len(self.receiver_buffer) != 0:
-            received_dict = [(self.sample_registration[cid], dict) for cid, dict in self.receiver_buffer.items()]
+        if len(self.receiver_buffer) != 0:  # 当有客户上传模型时
+            received_dict = []
+            if self.mode == 3 and flag:  # 模式3，且非首边缘轮
+                # 找出非绑定客户，并计算每个e下的间谍数量
+                no_bind_cids = [cid for cid in self.id_registration if cid not in self.cids]
+                eid_lengths = {}
+                for ncid in no_bind_cids: # 遍历所有未绑定客户id
+                    eid_lengths[self.sample_registration[ncid][1][0]] = 0
+                for ncid in no_bind_cids: # 遍历所有未绑定客户id
+                    eid_lengths[self.sample_registration[ncid][1][0]] += 1
+                for cid, dict in self.receiver_buffer.items():
+                    if cid in no_bind_cids:
+                        received_dict.append((self.sample_registration[cid][1][1] * self.tao /
+                                              eid_lengths[self.sample_registration[cid][1][0]], dict))
+                        self.all_sample_num += self.sample_registration[cid][0]
+                    else:
+                        received_dict.append((self.sample_registration[cid], dict))
+                        self.all_sample_num += self.sample_registration[cid]
+            else:
+                received_dict = [(self.sample_registration[cid], dict) for cid, dict in self.receiver_buffer.items()]
+                self.all_sample_num = sum(self.sample_registration.values())  # 直接求和就是这一轮edge的总样本量(这地方没加value就是对键值求和，如果只有一个id=0的客户下面的聚合直接g)
             self.shared_state_dict = average_weights(received_dict)
+        self.cids = self.id_registration
+
         return None
 
     def send_to_client(self, client):

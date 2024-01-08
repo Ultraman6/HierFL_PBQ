@@ -295,14 +295,20 @@ def args_parser():
     parser.add_argument(
         '--mode',
         type = int,
-        default = 1,
-        help = '训练模式，0 正常; 1 概率p不上传; 2 概率p误上传 '
+        default = 3,
+        help = '训练模式，0 正常; 1 概率p不上传; 2 概率p误上传; 3 参控交换聚合 '
     )
     parser.add_argument(
         '--probability',
         type = float,
         default = 0.8,
         help = '1,2模式下的概率p'
+    )
+    parser.add_argument(
+        '--tao',
+        type = float,
+        default = 0.8,
+        help = '2,3模式下的可控超参数，用于非首边缘轮的边缘聚合'
     )
 
     args = parser.parse_args()

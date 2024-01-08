@@ -77,7 +77,7 @@ class Client():
                 correct += (predict == labels).sum().item()
         return correct, total
 
-    def send_to_edgeserver(self, matched_edge, all_edges):
+    def send_to_edgeserver(self, matched_edge, all_edges, flag): # 表示是否为非首边缘轮
         if self.mode == 0:  # 总是发送给匹配的 server
             matched_edge.receive_from_client(client_id=self.id,
                                              cshared_state_dict=copy.deepcopy(
@@ -91,7 +91,7 @@ class Client():
                                                  train_loss=self.train_loss, train_sample_num=len(self.train_loader.dataset))
             else:
                 print(f"客户{self.id} 不发送给边缘服务器{matched_edge.id}")
-        else:  # 模式 2，如果不发送给匹配的 server，随机选择一个其他的 server 发送
+        else:  # 模式 2 & 3，如果不发送给匹配的 server，随机选择一个其他的 server 发送
             if random.random() > self.p:
                 matched_edge.receive_from_client(client_id=self.id,
                                                  cshared_state_dict=copy.deepcopy(
@@ -101,10 +101,14 @@ class Client():
                 # 从剩余的 edge servers 中随机选择一个
                 remaining_servers = [es for es in all_edges if es.id != matched_edge.id]
                 selected_server = random.choice(remaining_servers)
+                if self.mode == 3 and flag: # 如果是选项3，且是非首边缘轮，需要重新计算上传的本地样本（当间谍）
+                    input_sample_num = (len(self.train_loader.dataset), (matched_edge.id, matched_edge.all_sample_num))
+                else:
+                    input_sample_num = len(self.train_loader.dataset)
                 selected_server.receive_from_client(client_id=self.id,
                                                     cshared_state_dict=copy.deepcopy(
                                                         self.model.shared_layers.state_dict()),
-                                                    train_loss=self.train_loss, train_sample_num=len(self.train_loader.dataset))
+                                                    train_loss=self.train_loss, train_sample_num=input_sample_num)
                 print(f"客户{self.id} 发送给另选的边缘服务器{selected_server.id}")
 
     def receive_from_edgeserver(self, shared_state_dict):

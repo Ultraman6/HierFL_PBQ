@@ -25,7 +25,7 @@ class Cloud():
 
     def edge_register(self, edge):
         self.id_registration.append(edge.id)  # 记录edge的总样本量
-        self.sample_registration[edge.id] = sum(edge.sample_registration.values())
+        self.sample_registration[edge.id] = edge.all_sample_num
         return None
 
     def receive_from_edge(self, edge_id, eshared_state_dict):
