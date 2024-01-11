@@ -5,6 +5,7 @@ import time
 from threading import Thread
 
 from matplotlib import pyplot as plt
+from torch import nn
 
 from models.celeba_gan import GAN, Generator, Discriminator
 from models.shakespare_rnn import RNNModel
@@ -71,7 +72,9 @@ def initialize_edges_iid(num_edges, clients, client_class_dis, mode):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-        edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
+        edges.append(
+            Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                 mode=mode))
         [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
         p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                           for sample in list(edges[eid].sample_registration.values())]
@@ -87,7 +90,8 @@ def initialize_edges_iid(num_edges, clients, client_class_dis, mode):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-    edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
+    edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                      mode=mode))
     [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
     p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                       for sample in list(edges[eid].sample_registration.values())]
@@ -126,7 +130,9 @@ def initialize_edges_niid(num_edges, clients, client_class_dis, mode):
                         set(client_class_dis[label_backup]) - set(assigned_client_idx))
                 for idx in assigned_client_idx:
                     assigned_clients_idxes.append(idx)
-        edges.append(Edge(id=eid, cids=assigned_clients_idxes,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
+        edges.append(
+            Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                 mode=mode))
         [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
         p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                           for sample in list(edges[eid].sample_registration.values())]
@@ -142,7 +148,8 @@ def initialize_edges_niid(num_edges, clients, client_class_dis, mode):
             for idx in assigned_client_idx:
                 assigned_clients_idxes.append(idx)
             client_class_dis[label] = list(set(client_class_dis[label]) - set(assigned_client_idx))
-    edges.append(Edge(id=eid,cids=assigned_clients_idxes,shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=mode))
+    edges.append(Edge(id=eid, cids=assigned_clients_idxes, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                      mode=mode))
     [edges[eid].client_register(clients[client]) for client in assigned_clients_idxes]
     p_clients[eid] = [sample / float(sum(edges[eid].sample_registration.values()))
                       for sample in list(edges[eid].sample_registration.values())]
@@ -168,16 +175,18 @@ def all_clients_test(server, clients, cids, device):
 def fast_all_clients_test(v_test_loader, global_nn, device):
     correct_all = 0.0
     total_all = 0.0
+    criterion = nn.CrossEntropyLoss().to(device)
     with torch.no_grad():
         for data in v_test_loader:
             inputs, labels = data
             inputs = inputs.to(device)
             labels = labels.to(device)
             outputs = global_nn(inputs)
+            loss = criterion(outputs, labels)  # pylint: disable=E1102
             _, predicts = torch.max(outputs, 1)
             total_all += labels.size(0)
             correct_all += (predicts == labels).sum().item()
-    return correct_all, total_all
+    return correct_all, total_all, loss.item() * labels.size(0)
 
 
 def fast_all_clients_test_gan(v_test_loader, global_gan, device):
@@ -255,7 +264,7 @@ def initialize_global_nn(args):
 # 分层联邦总聚合
 def HierFAVG(args):
     # make experiments repeatable
-    global avg_acc_v
+    global avg_acc_v, cloud_test_loss
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     if args.cuda:
@@ -263,6 +272,7 @@ def HierFAVG(args):
         cuda_to_use = torch.device(f'cuda:{args.gpu}')
     device = cuda_to_use if torch.cuda.is_available() else "cpu"
     print(f'Using device {device}')
+    test_criterion = nn.CrossEntropyLoss().to(device)
     # Build dataloaders
     train_loaders, test_loaders, v_test_loader = get_dataloaders(args)
 
@@ -304,7 +314,6 @@ def HierFAVG(args):
                               args=args,
                               device=device))
 
-
     # Initialize edge server and assign clients to the edge server
     edges = []
     cids = np.arange(args.num_clients)
@@ -336,8 +345,9 @@ def HierFAVG(args):
                         selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
                 print(f"Edge {i} has clients {selected_cids}")
 
-                cids = list(set(cids) - set(selected_cids))    # 这里是GAN也没关系，反正都是模型类
-                edges.append(Edge(id=i,cids=selected_cids, shared_layers=copy.deepcopy(clients[0].model.shared_layers),mode=args.mode))
+                cids = list(set(cids) - set(selected_cids))  # 这里是GAN也没关系，反正都是模型类
+                edges.append(Edge(id=i, cids=selected_cids, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                                  mode=args.mode))
 
                 # 注册客户信息并按需把共享数据集给到客户端
                 for cid in selected_cids:
@@ -360,7 +370,8 @@ def HierFAVG(args):
                     selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
             print(f"Edge {i} has clients {selected_cids}")
             cids = list(set(cids) - set(selected_cids))
-            edges.append(Edge(id=i,cids=selected_cids,shared_layers=copy.deepcopy(clients[0].model.shared_layers), mode=args.mode, tao=args.tao))
+            edges.append(Edge(id=i, cids=selected_cids, shared_layers=copy.deepcopy(clients[0].model.shared_layers),
+                              mode=args.mode, tao=args.tao))
 
             # 注册客户信息并按需把共享数据集给到客户端
             for cid in selected_cids:
@@ -386,8 +397,10 @@ def HierFAVG(args):
     # 开始训练
     # accs_edge_avg = []  # 记录云端的平均边缘测试精度
     # losses_edge_avg = []  # 记录云端的平均边缘损失
-    accs_cloud = [0.0]  # 记录每轮云端聚合的精度
-    times = [0]  # 记录每个云端轮结束的时间戳
+    accs_cloud = []  # 记录每轮云端聚合的精度
+    loss_cloud = []  # 记录每轮云端聚合的损失
+    times = []  # 记录每个云端轮结束的时间戳
+    rounds = list(range(1, args.num_communication + 1))  # 轮次
     # 获取初始时间戳（训练开始时）
     start_time = time.time()
     for num_comm in tqdm(range(args.num_communication)):  # 云聚合
@@ -402,13 +415,14 @@ def HierFAVG(args):
             edge_loss = [0.0] * len(edges)
             edge_sample = [0] * len(edges)
             flag = (num_edgeagg != 0)
-            for edge in edges: # 多线程第一阶段：edge并行训练
-                edge_thread = Thread(target=process_edge_train, args=(edge, clients, args.num_local_update, device, edges, flag))
+            for edge in edges:  # 多线程第一阶段：edge并行训练
+                edge_thread = Thread(target=process_edge_train,
+                                     args=(edge, clients, args.num_local_update, device, edges, flag))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
                 edge_thread.join()
-            edge_threads.clear()   # 清空edge训练的线程，准备装入edge聚合的线程
+            edge_threads.clear()  # 清空edge训练的线程，准备装入edge聚合的线程
             for edge in edges:  # 多线程第二阶段：edge并行聚合
                 edge_thread = Thread(target=process_edge_agg, args=(edge, edge_loss, edge_sample, flag))
                 edge_threads.append(edge_thread)
@@ -440,20 +454,20 @@ def HierFAVG(args):
         if args.model == 'gan':
             correct_all_v, total_all_v = fast_all_clients_test_gan(v_test_loader, global_nn, device)
         else:
-            correct_all_v, total_all_v = fast_all_clients_test(v_test_loader, global_nn, device)
+            correct_all_v, total_all_v, cloud_test_loss = fast_all_clients_test(v_test_loader, global_nn, device)
         avg_acc_v = correct_all_v / total_all_v  # 测试精度
         print('Cloud Valid Accuracy {}'.format(avg_acc_v))
+        print('Cloud Valid Loss {}'.format(cloud_test_loss))
         # 在轮次结束时记录相对于开始时间的时间差, 记录云端轮的测试精度
         times.append(time.time() - start_time)
         accs_cloud.append(avg_acc_v)
+        loss_cloud.append(cloud_test_loss)
 
-    # 画出云端的精度-时间曲线图
-    plt.plot(times, accs_cloud, marker='v', color='r', label="HierFL")
-    plt.legend()
-    plt.xlabel('Time (s)')
-    plt.ylabel('Test Model Accuracy')
-    plt.title('Test Accuracy over Time')
-    plt.show()
+    # 画出云端 精度/损失-时间/轮次 曲线图
+    show_result(accs_cloud, loss_cloud, times, rounds)
+    # 组合数据为元组数组
+    combined_data = list(zip(rounds, times, accs_cloud, loss_cloud))
+    print(combined_data)
 
 
 def train_client(client, edge, num_iter, device, all_edges, flag):
@@ -490,15 +504,52 @@ def process_edge_train(edge, clients, num_local_update, device, all_edges, flag)
     for thread in threads:
         thread.join()
 
+
 def process_edge_agg(edge, edge_loss, edge_sample, flag):
     # 边缘聚合
     edge.aggregate(flag)
     # 更新边缘训练损失
     if len(edge.train_losses) != 0:
         edge_loss[edge.id] += sum(edge.train_losses) / len(edge.train_losses)
-    else: # 如果没有客户上传模型，损失为0
+    else:  # 如果没有客户上传模型，损失为0
         edge_loss[edge.id] = 0.0
     edge_sample[edge.id] += sum(edge.sample_registration)
+
+
+def show_result(accs_cloud, loss_cloud, times, rounds):
+    # 精度 vs 轮次
+    plt.figure()
+    plt.plot(rounds, accs_cloud, marker='o', color='b', label="HierFL")
+    plt.xlabel('Rounds')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy vs Rounds')
+    plt.legend()
+    plt.show()
+    # 损失 vs 轮次
+    plt.figure()
+    plt.plot(rounds, loss_cloud, marker='s', color='g', label="HierFL")
+    plt.xlabel('Rounds')
+    plt.ylabel('Loss')
+    plt.title('Loss vs Rounds')
+    plt.legend()
+    plt.show()
+    # 精度 vs 时间
+    plt.figure()
+    plt.plot(times, accs_cloud, marker='v', color='r', label="HierFL")
+    plt.xlabel('Time (s)')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy vs Time')
+    plt.legend()
+    plt.show()
+    # 损失 vs 时间
+    plt.figure()
+    plt.plot(times, loss_cloud, marker='^', color='m', label="HierFL")
+    plt.xlabel('Time (s)')
+    plt.ylabel('Loss')
+    plt.title('Loss vs Time')
+    plt.legend()
+    plt.show()
+
 
 def main():
     args = args_parser()

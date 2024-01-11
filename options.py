@@ -10,17 +10,17 @@ def args_parser():
     parser.add_argument(
         '--dataset',
         type = str,
-        default = 'mnist',
+        default = 'synthetic',
         help = 'name of the dataset: mnist, cifar10, femnist, '
                'synthetic, cinic10, shakespare, celeba'
     )
     parser.add_argument(
         '--model',
         type = str,
-        default = 'cnn',
+        default = 'logistic',
         help='name of model. mnist: logistic, lenet, cnn; '
              'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; '
-             'femnist: logistic, lenet, cnn; synthetic: lr; '
+             'femnist: logistic, lenet, cnn; synthetic: logistic; '
              'shakespare: rnn、lstm; celeba: gan'
     )
     parser.add_argument(

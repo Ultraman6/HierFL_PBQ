@@ -9,10 +9,10 @@ import random
 def softmax(x):
     ex = np.exp(x)
     sum_ex = np.sum(np.exp(x))
-    return ex/sum_ex
+    return ex / sum_ex
+
 
 def generate_synthetic(alpha, beta, iid, dimension, NUM_CLASS, NUM_USER):
-
     samples_per_user = np.random.lognormal(4, 2, (NUM_USER)).astype(int) + 50
     print(samples_per_user)
 
@@ -91,7 +91,8 @@ def get_dataloader(X, y, args):
 
     return train_loaders, test_loaders, v_test_loader
 
+
 def get_synthetic(args):
     X, y = generate_synthetic(args.alpha, args.beta, args.iid, args.dimension, args.num_class, args.num_clients)
-    train_loaders, test_loaders, share_loaders, v_test_loader = get_dataloader(X, y, args)
+    train_loaders, test_loaders, v_test_loader = get_dataloader(X, y, args)
     return train_loaders, test_loaders, v_test_loader
