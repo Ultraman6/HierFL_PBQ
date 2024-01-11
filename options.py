@@ -295,7 +295,7 @@ def args_parser():
     parser.add_argument(
         '--mode',
         type = int,
-        default = 3,
+        default = 1,
         help = '训练模式，0 正常; 1 概率p不上传; 2 概率p误上传; 3 参控交换聚合 '
     )
     parser.add_argument(

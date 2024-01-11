@@ -1,7 +1,9 @@
 # Flow of the algorithm
 # Client update(t_1) -> Edge Aggregate(t_2) -> Cloud Aggregate(t_3)
 import json
+import os
 import time
+from datetime import datetime
 from threading import Thread
 
 from matplotlib import pyplot as plt
@@ -175,6 +177,7 @@ def all_clients_test(server, clients, cids, device):
 def fast_all_clients_test(v_test_loader, global_nn, device):
     correct_all = 0.0
     total_all = 0.0
+    loss_all = 0.0
     criterion = nn.CrossEntropyLoss().to(device)
     with torch.no_grad():
         for data in v_test_loader:
@@ -186,7 +189,8 @@ def fast_all_clients_test(v_test_loader, global_nn, device):
             _, predicts = torch.max(outputs, 1)
             total_all += labels.size(0)
             correct_all += (predicts == labels).sum().item()
-    return correct_all, total_all, loss.item() * labels.size(0)
+            loss_all += loss.item() * labels.size(0)
+    return correct_all, total_all, loss_all
 
 
 def fast_all_clients_test_gan(v_test_loader, global_gan, device):
@@ -454,8 +458,9 @@ def HierFAVG(args):
         if args.model == 'gan':
             correct_all_v, total_all_v = fast_all_clients_test_gan(v_test_loader, global_nn, device)
         else:
-            correct_all_v, total_all_v, cloud_test_loss = fast_all_clients_test(v_test_loader, global_nn, device)
+            correct_all_v, total_all_v, all_test_loss = fast_all_clients_test(v_test_loader, global_nn, device)
         avg_acc_v = correct_all_v / total_all_v  # 测试精度
+        cloud_test_loss = all_test_loss / total_all_v  # 测试损失
         print('Cloud Valid Accuracy {}'.format(avg_acc_v))
         print('Cloud Valid Loss {}'.format(cloud_test_loss))
         # 在轮次结束时记录相对于开始时间的时间差, 记录云端轮的测试精度
@@ -465,9 +470,8 @@ def HierFAVG(args):
 
     # 画出云端 精度/损失-时间/轮次 曲线图
     show_result(accs_cloud, loss_cloud, times, rounds)
-    # 组合数据为元组数组
-    combined_data = list(zip(rounds, times, accs_cloud, loss_cloud))
-    print(combined_data)
+    # 保存结果txt至目录logs_dir/
+    save_combined_data_to_file(args, rounds, times, accs_cloud, loss_cloud)
 
 
 def train_client(client, edge, num_iter, device, all_edges, flag):
@@ -515,6 +519,40 @@ def process_edge_agg(edge, edge_loss, edge_sample, flag):
         edge_loss[edge.id] = 0.0
     edge_sample[edge.id] += sum(edge.sample_registration)
 
+
+def save_combined_data_to_file(args, rounds, times, accs_cloud, loss_cloud):
+    # 确定项目根目录，假设是当前脚本的目录
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    # 创建 logs_dir 目录
+    logs_dir = os.path.join(project_root, 'logs_dir')
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+
+    # 获取当前时间戳
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+
+    # 构建文件名
+    fileout = f"{args.dataset}_clients{args.num_clients}_edges{args.num_edges}_" \
+              f"t1-{args.num_local_update}_t2-{args.num_edge_aggregation}_" \
+              f"model_{args.model}_iid{args.iid}_edgeiid{args.edgeiid}_epoch{args.num_communication}_" \
+              f"tabs{args.train_batch_size}_tebs{args.test_batch_size}_lr{args.lr}_lrdecay{args.lr_decay}_" \
+              f"lrdecayepoch{args.lr_decay_epoch}_momentum{args.momentum}_{timestamp}.txt"
+
+    # 文件路径
+    file_path = os.path.join(logs_dir, fileout)
+
+    # 组合数据为元组数组
+    combined_data = list(zip(rounds, times, accs_cloud, loss_cloud))
+
+    # 将数据保存到txt文件
+    with open(file_path, 'w') as file:
+        for data in combined_data:
+            line = ', '.join(map(str, data))
+            file.write(line + '\n')
+
+    print(f"Data has been saved to {file_path}")
+    return file_path
 
 def show_result(accs_cloud, loss_cloud, times, rounds):
     # 精度 vs 轮次
