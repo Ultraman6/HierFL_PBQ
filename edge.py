@@ -91,7 +91,11 @@ class Edge():
                 received_dict = [(self.sample_registration[cid], dict) for cid, dict in self.receiver_buffer.items()]
                 self.all_sample_num = sum(self.sample_registration.values())  # 直接求和就是这一轮edge的总样本量(这地方没加value就是对键值求和，如果只有一个id=0的客户下面的聚合直接g)
             self.shared_state_dict = average_weights(received_dict)
-        self.cids = self.id_registration
+
+        if self.mode != 1:  # 模式1下cids是记录初始常量；其余模式下则记录上一轮
+            self.cids = self.id_registration
+        else:
+            self.id_registration = self.cids
 
         return None
 

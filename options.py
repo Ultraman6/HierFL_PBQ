@@ -301,7 +301,7 @@ def args_parser():
     parser.add_argument(
         '--probability',
         type = float,
-        default = 0.8,
+        default = 0.2,
         help = '1,2模式下的概率p'
     )
     parser.add_argument(
